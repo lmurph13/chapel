@@ -60,6 +60,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "stringutil.h"
 #include "mysystem.h"
 
+
 #define ZLINEFORMAT "#line %d \"%s\"\n"
 #define ZLINEINPUT "/* ZLINE: "
 #define ZLINEINPUTFORMAT "/* ZLINE: %d %s"
@@ -71,6 +72,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define max(x,y) ((x)>(y) ? x : y)
 
 static std::vector<int> justification;
+static std::string imbalanceError = "";
 static int depth = 0;
 static int parens = 0;
 static int justify = 0;
@@ -111,8 +113,9 @@ static void update_state(char *line) {
       break;
     case '{':
       if (!inquote && !intick) {
-        if (oldstuff == -1) {
-          INT_FATAL("Unbalanced curly braces:\n\t%s",line);
+        if (depth < 0) {
+          imbalanceError = "Unbalanced curly braces";
+          INT_FATAL("Unbalanced curly braces:\n\t%s", line);
         }
         oldstuff = 0;   /* assume all parens have been closed */
         stuff = 0;
@@ -124,8 +127,9 @@ static void update_state(char *line) {
       break;
     case '}':
       if (!inquote && !intick) {
-        if (oldstuff == -1) {
-          INT_FATAL("Unbalanced curly braces:\n\t%s",line);
+        if (depth <= 0) {
+          imbalanceError = "Unbalanced curly braces";
+          INT_FATAL("Unbalanced curly braces:\n\t%s", line);
         }
         oldstuff = 0;   /* assume all parens have been closed */
         stuff = 0;
@@ -138,8 +142,9 @@ static void update_state(char *line) {
     case '(':
       if (!inquote && !intick) {
         justification.push_back(oldstuff);
-        if (oldstuff == -1) {
-          INT_FATAL("Unbalanced parentheses:\n\t%s",line);
+        if (parens < 0) {
+          imbalanceError = "Unbalanced parentheses";
+          INT_FATAL("Unbalanced parentheses:\n\t%s", line);
         }
         oldoldstuff = oldstuff;
         oldstuff = oldoldstuff + stuff + 1;
@@ -152,6 +157,10 @@ static void update_state(char *line) {
       break;
     case ')':
       if (!inquote && !intick) {
+        if (parens <= 0) {
+          imbalanceError = "Unbalanced parentheses";
+          INT_FATAL("Unbalanced parentheses:\n\t%s", line);
+        }
         oldstuff = justification.back();
         justification.pop_back();
         stuff = 0;
@@ -265,9 +274,8 @@ void beautify(fileinfo* origfile) {
   command = astr("mv ", tmpfile->pathname, " ", origfile->pathname);
   mysystem(command, "moving beautified file", false, true);
 
-  if (justification.size() != 0) {
-    INT_FATAL( "Parentheses or curly braces are not balanced "
-               "in codegen for %s.", origfile->pathname);
+  if (!imbalanceError.empty()) {
+    INT_FATAL("Imbalance detected in %s: %s", origfile->pathname, imbalanceError.c_str());
   }
 
 }
